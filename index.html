@@ -1674,7 +1674,7 @@
     setTimeout(() => mLoader.classList.add("is-hidden"), wait);
   }
 
-  if (reduce || !hasWebGL()) {
+  if (reduce) {
     document.body.classList.add("no-webgl");
     dismissLoader(300);
     return;
@@ -1682,10 +1682,255 @@
 
   const canvas  = document.getElementById("particles");
   const wrapper = document.getElementById("hero");
-  if (!canvas || !wrapper || typeof THREE === "undefined") {
+  if (!canvas || !wrapper) {
     document.body.classList.add("no-webgl");
     dismissLoader(300);
     return;
+  }
+
+  /* ========== MOBILE PATH — CANVAS 2D (no WebGL, no Three.js) ==========
+     iOS Safari WebGL has too much variance — shader compile + framebuffer
+     allocation can take 0.5–3s on the same device across reloads. Canvas 2D
+     has none of that. Same four-state morph, same scroll progress, same
+     palette — rendered as filled rectangles instead of GPU points. */
+  if (window.innerWidth < 768) {
+    initMobile2D();
+    return;
+  }
+
+  if (!hasWebGL() || typeof THREE === "undefined") {
+    document.body.classList.add("no-webgl");
+    dismissLoader(300);
+    return;
+  }
+
+  function initMobile2D() {
+    const ctx = canvas.getContext("2d", { alpha: true });
+    if (!ctx) {
+      document.body.classList.add("no-webgl");
+      dismissLoader(300);
+      return;
+    }
+    const heroMeta     = document.getElementById("heroMeta");
+    const heroTextName  = document.getElementById("heroTextName");
+    const heroTextOutro = document.getElementById("heroTextOutro");
+
+    let W = window.innerWidth, H = window.innerHeight;
+    function resize2D() {
+      W = window.innerWidth; H = window.innerHeight;
+      canvas.width = W; canvas.height = H;
+    }
+    resize2D();
+
+    const COUNT = 900;
+    const TEXT_NAME  = "Gunjan Sharma";
+    const TEXT_OUTRO = "Here's more about me";
+    const FS_NAME  = Math.min(120, W * 0.18);
+    const FS_OUTRO = Math.min(76,  W * 0.12);
+
+    function buildText(text, fontSize, maxFrac) {
+      const sc = document.createElement("canvas");
+      const sctx = sc.getContext("2d");
+      const fontStr = `900 ${fontSize}px "Inter", system-ui, sans-serif`;
+      sctx.font = fontStr;
+      const m = sctx.measureText(text);
+      const bw = Math.ceil(m.width + fontSize * 0.4);
+      const bh = Math.ceil(fontSize * 1.35);
+      sc.width = bw; sc.height = bh;
+      sctx.fillStyle = "#000";
+      sctx.font = fontStr;
+      sctx.textAlign = "center"; sctx.textBaseline = "middle";
+      sctx.fillText(text, bw/2, bh/2);
+      const data = sctx.getImageData(0, 0, bw, bh).data;
+      const pts = [];
+      const step = 4;
+      const targetW = Math.min(W * maxFrac, 480);
+      const scale = targetW / bw;
+      for (let y = 0; y < bh; y += step) {
+        for (let x = 0; x < bw; x += step) {
+          if (data[(y * bw + x) * 4 + 3] > 128) {
+            pts.push((x - bw/2) * scale, -(y - bh/2) * scale);
+          }
+        }
+      }
+      // Shuffle by random pair swap, then sample COUNT positions
+      const half = pts.length / 2;
+      for (let i = half - 1; i > 0; i--) {
+        const j = (Math.random() * (i + 1)) | 0;
+        const tx = pts[i*2], ty = pts[i*2+1];
+        pts[i*2] = pts[j*2]; pts[i*2+1] = pts[j*2+1];
+        pts[j*2] = tx;       pts[j*2+1] = ty;
+      }
+      const out = new Float32Array(COUNT * 2);
+      const fb = pts.length ? pts : [0, 0];
+      const fbCount = pts.length ? half : 1;
+      for (let i = 0; i < COUNT; i++) {
+        const idx = (i % fbCount) * 2;
+        out[i*2]   = fb[idx]   + (Math.random() - 0.5) * 1.5;
+        out[i*2+1] = fb[idx+1] + (Math.random() - 0.5) * 1.5;
+      }
+      return out;
+    }
+
+    function buildGraph2D() {
+      // Same node layout as desktop, but scaled to mobile viewport
+      const NODE_HALF_W = 580, NODE_HALF_H = 380, PAD = 0.86;
+      const sx = (W * 0.5 * PAD) / NODE_HALF_W;
+      const sy = (H * 0.5 * PAD) / NODE_HALF_H;
+      const s = Math.min(sx, sy);
+      const nodes = [
+        { w: 30, x:    0, y:    0, r: 110 },
+        { w: 22, x: -360, y: -110, r: 100 },
+        { w: 16, x:  340, y: -160, r:  85 },
+        { w: 13, x: -240, y:  220, r:  72 },
+        { w: 11, x:  280, y:  200, r:  68 },
+        { w:  8, x:    0, y: -280, r:  58 },
+        { w:  6, x: -480, y:   80, r:  50 },
+        { w:  5, x:  500, y:   40, r:  44 },
+        { w:  3, x:  120, y:  330, r:  40 }
+      ];
+      nodes.forEach(n => { n.x *= s; n.y *= s; n.r *= s; });
+      const totalW = nodes.reduce((a, n) => a + n.w, 0);
+      const out = new Float32Array(COUNT * 2);
+      let i = 0;
+      nodes.forEach(n => {
+        const share = Math.round((n.w / totalW) * COUNT);
+        for (let j = 0; j < share && i < COUNT; j++, i++) {
+          const a = Math.random() * Math.PI * 2;
+          const r = Math.pow(Math.random(), 0.7) * n.r;
+          out[i*2]   = n.x + Math.cos(a) * r;
+          out[i*2+1] = n.y + Math.sin(a) * r;
+        }
+      });
+      while (i < COUNT) {
+        const a = Math.random() * Math.PI * 2;
+        const r = Math.pow(Math.random(), 0.7) * nodes[0].r;
+        out[i*2]   = Math.cos(a) * r;
+        out[i*2+1] = Math.sin(a) * r;
+        i++;
+      }
+      return out;
+    }
+
+    let namePos  = buildText(TEXT_NAME,  FS_NAME,  0.92);
+    let outroPos = buildText(TEXT_OUTRO, FS_OUTRO, 0.95);
+    let graphPos = buildGraph2D();
+    const radials = new Float32Array(COUNT * 2);
+    const sizes   = new Float32Array(COUNT);
+    const colors  = new Uint8Array(COUNT);  // 0 = ink, 1 = pink
+    for (let i = 0; i < COUNT; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 0.7 + Math.random() * 1.2;
+      radials[i*2]   = Math.cos(a) * sp;
+      radials[i*2+1] = Math.sin(a) * sp + 0.2;
+      sizes[i] = 1.6 + Math.random() * 1.4;
+      colors[i] = Math.random() < 0.78 ? 0 : 1;
+    }
+
+    // Stage timing — same as desktop mobile constants
+    const NAME_END     = 0.14;
+    const M1_END       = 0.32;
+    const STACK_END    = 0.50;
+    const EXPAND_END   = 0.60;
+    const COLLAPSE_END = 0.90;
+
+    function smooth(x, a, b) {
+      if (b === a) return x < a ? 0 : 1;
+      const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+      return t * t * (3 - 2 * t);
+    }
+
+    let scrollP = 0;
+    let needsResize = false;
+
+    function computeProgress() {
+      const rect = wrapper.getBoundingClientRect();
+      const total = wrapper.offsetHeight - window.innerHeight;
+      return Math.max(0, Math.min(1, (-rect.top) / total));
+    }
+
+    function frame() {
+      if (needsResize) {
+        resize2D();
+        namePos  = buildText(TEXT_NAME,  Math.min(120, W * 0.18), 0.92);
+        outroPos = buildText(TEXT_OUTRO, Math.min(76,  W * 0.12), 0.95);
+        graphPos = buildGraph2D();
+        needsResize = false;
+      }
+
+      scrollP = computeProgress();
+      const p = scrollP;
+      const m1     = smooth(p, NAME_END,    M1_END);
+      const expand = smooth(p, STACK_END,   EXPAND_END);
+      const m3     = smooth(p, EXPAND_END,  COLLAPSE_END);
+
+      // Update DOM text + meta opacities (cheap, same logic as desktop)
+      if (heroTextName)  heroTextName.style.opacity  = (1 - smooth(p, 0.04, NAME_END)).toFixed(3);
+      if (heroMeta)      heroMeta.style.opacity      = (1 - smooth(p, 0.02, NAME_END)).toFixed(3);
+      if (heroTextOutro) heroTextOutro.style.opacity = smooth(p, COLLAPSE_END - 0.04, COLLAPSE_END + 0.06).toFixed(3);
+
+      // Canvas opacity follows the same curve as desktop
+      const canvasOp = smooth(p, 0.02, NAME_END) * (1 - smooth(p, COLLAPSE_END - 0.04, COLLAPSE_END + 0.06));
+      canvas.style.opacity = canvasOp.toFixed(3);
+
+      ctx.clearRect(0, 0, W, H);
+      const cx = W / 2, cy = H / 2;
+      const expDist = 700 * expand;
+
+      // Draw ink particles
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--ink").trim() || "#0A1330";
+      for (let i = 0; i < COUNT; i++) {
+        if (colors[i] !== 0) continue;
+        let x = namePos[i*2]   + (graphPos[i*2]   - namePos[i*2])   * m1;
+        let y = namePos[i*2+1] + (graphPos[i*2+1] - namePos[i*2+1]) * m1;
+        x += radials[i*2]   * expDist;
+        y += radials[i*2+1] * expDist;
+        x += (outroPos[i*2]   - x) * m3;
+        y += (outroPos[i*2+1] - y) * m3;
+        const sz = sizes[i];
+        ctx.fillRect(cx + x - sz/2, cy - y - sz/2, sz, sz);
+      }
+      // Draw pink particles
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--pink").trim() || "#E91E63";
+      for (let i = 0; i < COUNT; i++) {
+        if (colors[i] !== 1) continue;
+        let x = namePos[i*2]   + (graphPos[i*2]   - namePos[i*2])   * m1;
+        let y = namePos[i*2+1] + (graphPos[i*2+1] - namePos[i*2+1]) * m1;
+        x += radials[i*2]   * expDist;
+        y += radials[i*2+1] * expDist;
+        x += (outroPos[i*2]   - x) * m3;
+        y += (outroPos[i*2+1] - y) * m3;
+        const sz = sizes[i];
+        ctx.fillRect(cx + x - sz/2, cy - y - sz/2, sz, sz);
+      }
+
+      requestAnimationFrame(frame);
+    }
+
+    let resizeT;
+    window.addEventListener("resize", () => {
+      clearTimeout(resizeT);
+      resizeT = setTimeout(() => { needsResize = true; }, 160);
+    });
+
+    // Wait for fonts so the sampled text is crisp; fall back fast either way.
+    function start() {
+      // Resample with proper Inter once it's loaded (initial sampling uses fallback)
+      try {
+        namePos  = buildText(TEXT_NAME,  Math.min(120, W * 0.18), 0.92);
+        outroPos = buildText(TEXT_OUTRO, Math.min(76,  W * 0.12), 0.95);
+      } catch (e) {}
+      requestAnimationFrame(frame);
+      requestAnimationFrame(() => requestAnimationFrame(() => dismissLoader(550)));
+    }
+    if (document.fonts && document.fonts.load) {
+      Promise.all([
+        document.fonts.load(`900 ${FS_NAME}px "Inter"`),
+        document.fonts.load(`900 ${FS_OUTRO}px "Inter"`)
+      ]).then(start).catch(start);
+    } else {
+      start();
+    }
   }
 
   try {
