@@ -205,6 +205,64 @@
   }
   .hero-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 
+  /* MOBILE-ONLY hero graph (replaces WebGL particles on phones — instant load) */
+  .hero-mobile {
+    position: absolute;
+    inset: 0;
+    display: none;            /* shown only via mobile media query below */
+    align-items: center;
+    justify-content: center;
+    padding: 6vh clamp(16px, 5vw, 40px);
+    pointer-events: none;
+    opacity: 0;
+    transform-origin: center center;
+    will-change: transform, opacity;
+  }
+  .hero-mobile-svg {
+    width: 100%;
+    max-width: 480px;
+    height: auto;
+    aspect-ratio: 1 / 1;
+  }
+  .m-edge {
+    fill: none;
+    stroke: var(--ink-soft);
+    stroke-width: 1.1;
+    stroke-linecap: round;
+    opacity: 0.55;
+    transition: stroke .12s linear;
+  }
+  .m-node circle {
+    fill: var(--bg-alt);
+    stroke: var(--ink);
+    stroke-width: 1.4;
+    transition: fill .12s linear, stroke .12s linear;
+  }
+  .m-node.is-primary circle { fill: var(--ink); stroke: var(--ink); }
+  .m-node.is-pink circle    { fill: var(--pink); stroke: var(--pink); }
+  .m-node text {
+    fill: var(--ink);
+    font-family: var(--mono);
+    font-size: 9.5px;
+    font-weight: 600;
+    text-anchor: middle;
+    dominant-baseline: central;
+    letter-spacing: 0.04em;
+    text-transform: lowercase;
+    transition: fill .12s linear;
+  }
+  .m-node.is-primary text,
+  .m-node.is-pink text { fill: #fff; }
+  .m-node.large text   { font-size: 12px; }
+  .m-node.medium text  { font-size: 10.5px; }
+
+  /* On phones: replace WebGL canvas with the SVG graph */
+  @media (max-width: 767px) {
+    .hero-canvas    { display: none !important; }
+    .cluster-labels { display: none !important; }
+    .hero-mobile    { display: flex; }
+  }
+
   /* SOLID hero text overlays (state 1 and state 4) */
   .hero-text {
     position: absolute;
@@ -840,6 +898,41 @@
     <div class="hero-sticky">
       <canvas id="particles" class="hero-canvas"></canvas>
       <div class="cluster-labels" id="clusterLabels"></div>
+
+      <!-- Mobile-only static SVG graph (renders instantly, no WebGL needed) -->
+      <div class="hero-mobile" id="heroMobile" aria-hidden="true">
+        <svg class="hero-mobile-svg" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+          <g class="m-edges">
+            <line class="m-edge" x1="200" y1="200" x2="95"  y2="100" />
+            <line class="m-edge" x1="200" y1="200" x2="305" y2="105" />
+            <line class="m-edge" x1="200" y1="200" x2="95"  y2="300" />
+            <line class="m-edge" x1="200" y1="200" x2="305" y2="300" />
+            <line class="m-edge" x1="200" y1="200" x2="200" y2="65"  />
+            <line class="m-edge" x1="200" y1="200" x2="60"  y2="200" />
+            <line class="m-edge" x1="200" y1="200" x2="340" y2="200" />
+            <line class="m-edge" x1="200" y1="200" x2="200" y2="335" />
+            <line class="m-edge" x1="95"  y1="100" x2="200" y2="65"  />
+            <line class="m-edge" x1="305" y1="105" x2="200" y2="65"  />
+            <line class="m-edge" x1="95"  y1="100" x2="60"  y2="200" />
+            <line class="m-edge" x1="305" y1="105" x2="340" y2="200" />
+            <line class="m-edge" x1="95"  y1="300" x2="60"  y2="200" />
+            <line class="m-edge" x1="305" y1="300" x2="340" y2="200" />
+            <line class="m-edge" x1="95"  y1="300" x2="200" y2="335" />
+            <line class="m-edge" x1="305" y1="300" x2="200" y2="335" />
+            <line class="m-edge" x1="95"  y1="100" x2="305" y2="105" />
+            <line class="m-edge" x1="95"  y1="300" x2="305" y2="300" />
+          </g>
+          <g class="m-node is-primary large"><circle cx="200" cy="200" r="44"/><text x="200" y="200">python</text></g>
+          <g class="m-node is-primary"><circle cx="95"  cy="100" r="36"/><text x="95"  y="100">jupyter</text></g>
+          <g class="m-node medium"><circle cx="305" cy="105" r="32"/><text x="305" y="105">sql</text></g>
+          <g class="m-node is-pink medium"><circle cx="95"  cy="300" r="29"/><text x="95"  y="300">ml/ai</text></g>
+          <g class="m-node medium"><circle cx="305" cy="300" r="28"/><text x="305" y="300">cloud</text></g>
+          <g class="m-node"><circle cx="200" cy="65"  r="22"/><text x="200" y="65">bi/viz</text></g>
+          <g class="m-node"><circle cx="60"  cy="200" r="21"/><text x="60"  y="200">big data</text></g>
+          <g class="m-node"><circle cx="340" cy="200" r="19"/><text x="340" y="200">js</text></g>
+          <g class="m-node is-pink"><circle cx="200" cy="335" r="20"/><text x="200" y="335">agentic</text></g>
+        </svg>
+      </div>
 
       <!-- Solid text — state 1: name -->
       <div class="hero-text hero-text--name" id="heroTextName">
@@ -1626,20 +1719,74 @@
   })();
 
   /* =========================================================
-     PARTICLE HERO  — four-state morph:
-       1) "Gunjan Sharma"          (heavy sans, solid, proper case)
-       2) tech-stack network graph (nodes + edges, NetworkX style)
-       3) radial expansion         (particles fly outward — peak scatter)
-       4) "Here's more about me"   (heavy sans, collapses back into text)
+     HERO  — four-state morph (name → graph → expand → outro).
+     Desktop runs a WebGL particle system. Mobile uses a static
+     SVG graph + DOM text driven by the same scroll progress —
+     loads instantly, no shader compile, no Float32Array setup.
      ========================================================= */
-  if (reduce || !hasWebGL()) {
+  if (reduce) {
+    document.body.classList.add("no-webgl");
+    return;
+  }
+
+  const wrapper = document.getElementById("hero");
+  if (!wrapper) return;
+
+  /* ----- MOBILE PATH — instant, DOM/SVG only ----- */
+  if (window.innerWidth < 768) {
+    (function mobileHero() {
+      const mob = document.getElementById("heroMobile");
+      const nameEl  = document.getElementById("heroTextName");
+      const outroEl = document.getElementById("heroTextOutro");
+      const heroMeta = document.getElementById("heroMeta");
+      if (!mob) return;
+
+      // Same stage timing as desktop so the bg-lines transition lines up
+      const NAME_END     = 0.14;
+      const M1_END       = 0.32;
+      const STACK_END    = 0.50;
+      const EXPAND_END   = 0.62;
+      const COLLAPSE_END = 0.84;
+
+      let p = 0, raf = 0;
+      function compute() {
+        const rect = wrapper.getBoundingClientRect();
+        const total = wrapper.offsetHeight - window.innerHeight;
+        return Math.max(0, Math.min(1, (-rect.top) / total));
+      }
+      function apply() {
+        const m1     = smoothstep(p, NAME_END,    M1_END);
+        const expand = smoothstep(p, STACK_END,   EXPAND_END);
+        const m3     = smoothstep(p, EXPAND_END,  COLLAPSE_END);
+
+        if (nameEl) nameEl.style.opacity = (1 - smoothstep(p, 0.04, NAME_END)).toFixed(3);
+        if (heroMeta) heroMeta.style.opacity = (1 - smoothstep(p, 0.02, NAME_END)).toFixed(3);
+
+        // Graph: fade in with m1, scale outward during expand, fade out with m3
+        const graphOp = m1 * (1 - m3);
+        const scale   = 1 + expand * 1.25;
+        mob.style.opacity = graphOp.toFixed(3);
+        mob.style.transform = `scale(${scale.toFixed(3)})`;
+
+        if (outroEl) outroEl.style.opacity = m3.toFixed(3);
+      }
+      function tick() { raf = 0; p = compute(); apply(); }
+      function onScroll() { if (raf) return; raf = requestAnimationFrame(tick); }
+      apply();
+      window.addEventListener("scroll", onScroll, { passive: true });
+      window.addEventListener("resize", apply);
+    })();
+    return;  // skip the entire WebGL pipeline
+  }
+
+  /* ----- DESKTOP PATH — WebGL particles ----- */
+  if (!hasWebGL()) {
     document.body.classList.add("no-webgl");
     return;
   }
 
   const canvas  = document.getElementById("particles");
-  const wrapper = document.getElementById("hero");
-  if (!canvas || !wrapper || typeof THREE === "undefined") {
+  if (!canvas || typeof THREE === "undefined") {
     document.body.classList.add("no-webgl");
     return;
   }
